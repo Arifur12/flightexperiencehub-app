@@ -8,22 +8,27 @@ from nltk.stem import WordNetLemmatizer
 import nltk
 from datetime import datetime
 
+# Ensure required NLTK data is downloaded
 nltk.download('wordnet')
 
+# Initialize Streamlit page configuration
 st.set_page_config(
     page_title="Airline Reviews Analysis",
     page_icon="✈️",
     layout="wide"
 )
 
+# Title and Description
 st.title("Airline Reviews Analysis Dashboard ✈️")
 st.write("""
 Upload your airline reviews dataset to analyze topics, sentiment, and generate TF-IDF weighted star ratings. 
 The dashboard provides insights into various service categories and offers recommendations based on overall ratings.
 """)
 
+# Sidebar Configuration
 st.sidebar.header("Configuration")
 
+# Slider for number of LDA topics
 num_topics = st.sidebar.slider(
     "Number of LDA Topics",
     min_value=2,
@@ -31,6 +36,7 @@ num_topics = st.sidebar.slider(
     value=5
 )
 
+# Slider for number of top words per topic
 num_words = st.sidebar.slider(
     "Number of Top Words per Topic",
     min_value=5,
@@ -38,6 +44,7 @@ num_words = st.sidebar.slider(
     value=10
 )
 
+# Slider for max TF-IDF features
 max_features = st.sidebar.slider(
     "Max TF-IDF Features",
     min_value=500,
@@ -47,6 +54,7 @@ max_features = st.sidebar.slider(
     help="Reduce vocabulary size for faster TF-IDF processing."
 )
 
+# Text area for custom stopwords
 stopwords_input = st.sidebar.text_area(
     "Custom Stopwords (comma-separated)",
     "the,a,an,is,it,to,and,in,on,for,of,at,this,that,was,with,as,be,by,verified,airways,trip"
@@ -55,15 +63,19 @@ custom_stopwords = set(word.strip().lower() for word in stopwords_input.split(',
 
 st.markdown("---")
 
+# File uploader for CSV files
 uploaded_file = st.file_uploader(
     "Upload your CSV file (with 'review' and 'title' columns)",
     type=["csv"]
 )
 
+# Button to run analysis
 run_button = st.button("Run Analysis")
 
+# Initialize Sentiment Analyzer
 analyzer = SentimentIntensityAnalyzer()
 
+# Predefined category keywords
 category_keywords = {
     'food': ['food', 'meal', 'snack', 'dinner', 'lunch', 'breakfast'],
     'service': ['service', 'staff', 'crew', 'attendant', 'helpful'],
@@ -73,6 +85,17 @@ category_keywords = {
 }
 
 def preprocess_text(text, custom_stopwords):
+    """
+    Preprocesses the input text by converting to lowercase, removing non-alphabetic characters,
+    eliminating custom stopwords, and applying lemmatization.
+
+    Args:
+        text (str): The text to preprocess.
+        custom_stopwords (set): A set of stopwords to remove from the text.
+
+    Returns:
+        str: The cleaned and preprocessed text.
+    """
     if not isinstance(text, str):
         return ""
     text = text.lower()
@@ -83,6 +106,18 @@ def preprocess_text(text, custom_stopwords):
     return ' '.join(tokens)
 
 def perform_topic_modeling(text_data, num_topics=5, num_words=10, max_features=2000):
+    """
+    Performs topic modeling on the provided text data using LDA.
+
+    Args:
+        text_data (pd.Series): The preprocessed text data.
+        num_topics (int): Number of topics to identify.
+        num_words (int): Number of top words per topic.
+        max_features (int): Maximum number of TF-IDF features.
+
+    Returns:
+        list: A list of tuples containing topic numbers and their respective top words.
+    """
     vectorizer = TfidfVectorizer(max_features=max_features)
     dtm = vectorizer.fit_transform(text_data)
     lda = LatentDirichletAllocation(n_components=num_topics, random_state=42, n_jobs=-1)
@@ -95,12 +130,30 @@ def perform_topic_modeling(text_data, num_topics=5, num_words=10, max_features=2
     return topics
 
 def analyze_vader_sentiment(text):
+    """
+    Analyzes sentiment of the given text using VADER.
+
+    Args:
+        text (str): The text to analyze.
+
+    Returns:
+        float: The compound sentiment score.
+    """
     if not isinstance(text, str) or text.strip() == "":
         return 0.0
     scores = analyzer.polarity_scores(text)
     return scores['compound']
 
 def assign_star_rating(sentiment):
+    """
+    Assigns a star rating based on the sentiment score.
+
+    Args:
+        sentiment (float): The sentiment score.
+
+    Returns:
+        int: Star rating between 1 and 5.
+    """
     if sentiment >= 0.4:
         return 5
     elif sentiment >= 0.2:
@@ -113,14 +166,33 @@ def assign_star_rating(sentiment):
         return 1
 
 def convert_rating_to_stars(rating):
+    """
+    Converts numerical rating to a string of star icons.
+
+    Args:
+        rating (int): Numerical rating between 1 and 5.
+
+    Returns:
+        str: String representation with filled and empty stars.
+    """
     filled_stars = "★" * rating
     empty_stars = "☆" * (5 - rating)
     return filled_stars + empty_stars
 
 @st.cache_data
 def load_data(uploaded_file):
+    """
+    Loads the CSV data into a pandas DataFrame.
+
+    Args:
+        uploaded_file (UploadedFile): The uploaded CSV file.
+
+    Returns:
+        pd.DataFrame: The loaded data.
+    """
     return pd.read_csv(uploaded_file, delimiter=';', on_bad_lines='skip', header=None, names=['review', 'title'])
 
+# Initialize session state for last updated time
 if 'last_updated' not in st.session_state:
     st.session_state['last_updated'] = None
 
@@ -133,12 +205,14 @@ if run_button:
             if reviews_df.empty:
                 st.error("Error: The dataset is empty.")
             else:
+                # Validate required columns
                 required_columns = ['review', 'title']
                 if not all(col in reviews_df.columns for col in required_columns):
                     st.error(f"CSV file must contain the following columns: {', '.join(required_columns)}")
                 else:
                     st.success(f"Dataset loaded successfully with {len(reviews_df)} records.")
 
+                    # Handle missing values
                     reviews_df['review'] = reviews_df['review'].fillna('')
                     reviews_df['title'] = reviews_df['title'].fillna('')
 
@@ -146,6 +220,7 @@ if run_button:
                         reviews_df['clean_review'] = reviews_df['review'].apply(lambda x: preprocess_text(x, custom_stopwords))
                         reviews_df['clean_title'] = reviews_df['title'].apply(lambda x: preprocess_text(x, custom_stopwords))
 
+                    # Combine text for topic modeling
                     combined_text = reviews_df['clean_review'] + ' ' + reviews_df['clean_title']
 
                     with st.spinner("Performing topic modeling..."):
@@ -184,8 +259,10 @@ if run_button:
                             reviews_df[f'{cat}_sentiment'] = category_sentiments[cat]
                             reviews_df[f'{cat}_rating'] = reviews_df[f'{cat}_sentiment'].apply(assign_star_rating)
 
+                    # Update last updated time
                     st.session_state['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+                    # Average Ratings Section
                     average_ratings = {}
                     for category in category_keywords.keys():
                         avg = reviews_df[f'{category}_rating'].mean()
@@ -200,9 +277,11 @@ if run_button:
                         col = [col1, col2, col3][idx % 3]
                         with col:
                             st.markdown(f"### **{category.capitalize()}**")
+                            # Enhanced star visuals using Markdown and emojis
                             st.markdown(f"<div style='font-size:30px;'>{stars}</div>", unsafe_allow_html=True)
                             st.markdown(f"**Average Rating:** {avg_rating:.2f} ⭐")
 
+                    # Overall Average Rating
                     overall_avg = reviews_df['overall_sentiment'].mean()
                     overall_star = assign_star_rating(overall_avg)
                     overall_stars = convert_rating_to_stars(overall_star)
@@ -210,7 +289,9 @@ if run_button:
                     st.markdown("---")
                     st.subheader("Overall Average Star Rating")
                     st.markdown(f"<div style='font-size:40px;'>{overall_stars}</div>", unsafe_allow_html=True)
+                    
 
+                    # Recommendation Feature
                     st.markdown("---")
                     st.subheader("Recommendation")
                     if overall_star >= 4:
@@ -225,9 +306,11 @@ if run_button:
                     
                     st.markdown(f"<div style='font-size:24px; color:{recommendation_color};'>{recommendation}</div>", unsafe_allow_html=True)
 
+                    # Display Last Updated Information
                     st.markdown("---")
                     st.write(f"**Last Updated:** {st.session_state['last_updated']}")
 
+                    # Download Processed Data
                     st.markdown("---")
                     st.subheader("Download Processed Data")
                     csv = reviews_df.to_csv(index=False).encode('utf-8')
@@ -238,6 +321,7 @@ if run_button:
                         mime='text/csv',
                     )
 
+                    # Refresh/Update Button
                     st.markdown("---")
                     if st.button("🔄 Refresh"):
                         st.experimental_rerun()
@@ -250,3 +334,4 @@ if run_button:
             st.error(f"An unexpected error occurred: {e}")
     else:
         st.info("Awaiting dataset upload and analysis.")
+
